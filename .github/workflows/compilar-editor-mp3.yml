@@ -1,0 +1,35 @@
+name: Compilar Editor MP3 para Windows
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "editor_mp3.py"
+      - "requirements-editor.txt"
+      - ".github/workflows/compilar-editor-mp3.yml"
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-editor.txt
+          pip install pyinstaller
+      - name: Crear EXE portable
+        run: |
+          pyinstaller --noconfirm --clean --onefile --windowed --name Editor_MP3 --collect-all imageio_ffmpeg editor_mp3.py
+      - name: Empaquetar
+        run: |
+          New-Item -ItemType Directory -Force -Path entrega
+          Copy-Item dist/Editor_MP3.exe entrega/
+          Set-Content entrega/LEEME.txt "Editor MP3 portable. Ejecutar Editor_MP3.exe. Incluye funciones de cortar, unir y mezclar. No requiere instalar Python."
+          Compress-Archive -Path entrega/* -DestinationPath Editor_MP3_Windows.zip -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Editor_MP3_Windows
+          path: Editor_MP3_Windows.zip
+          retention-days: 30
