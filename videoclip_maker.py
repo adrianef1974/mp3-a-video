@@ -72,6 +72,27 @@ def draw_person(draw, cx, cy, scale=1.0, pose="sitting", back=False):
         draw.ellipse((cx-10*s,cy-8*s,cx-7*s,cy-5*s), fill=(55,35,30))
         draw.ellipse((cx+7*s,cy-8*s,cx+10*s,cy-5*s), fill=(55,35,30))
 
+
+def draw_coworker(draw, cx, cy, scale=1.0, pointing=False):
+    """Compañero secundario del taller, estilo 2D sencillo."""
+    s=scale
+    skin=(202,151,119); shirt=(95,125,88); pants=(48,53,62)
+    draw.line((cx-10*s,cy+55*s,cx-14*s,cy+105*s),fill=pants,width=max(5,int(12*s)))
+    draw.line((cx+10*s,cy+55*s,cx+14*s,cy+105*s),fill=pants,width=max(5,int(12*s)))
+    draw.polygon([(cx-22*s,cy+3*s),(cx+22*s,cy+3*s),(cx+29*s,cy+66*s),(cx-29*s,cy+66*s)],fill=shirt,outline=(45,65,42))
+    if pointing:
+        draw.line((cx+18*s,cy+18*s,cx+58*s,cy-5*s),fill=shirt,width=max(5,int(11*s)))
+        draw.ellipse((cx+53*s,cy-11*s,cx+65*s,cy+1*s),fill=skin)
+        draw.line((cx-18*s,cy+18*s,cx-30*s,cy+55*s),fill=shirt,width=max(5,int(10*s)))
+    else:
+        draw.line((cx-18*s,cy+18*s,cx-32*s,cy+48*s),fill=shirt,width=max(5,int(10*s)))
+        draw.line((cx+18*s,cy+18*s,cx+32*s,cy+48*s),fill=shirt,width=max(5,int(10*s)))
+    draw.ellipse((cx-22*s,cy-43*s,cx+22*s,cy+8*s),fill=skin,outline=(90,60,45),width=2)
+    draw.arc((cx-23*s,cy-48*s,cx+23*s,cy-7*s),185,350,fill=(55,42,32),width=max(2,int(5*s)))
+    draw.ellipse((cx-13*s,cy-19*s,cx-8*s,cy-14*s),fill=(25,25,25))
+    draw.ellipse((cx+8*s,cy-19*s,cx+13*s,cy-14*s),fill=(25,25,25))
+    draw.arc((cx-8*s,cy-5*s,cx+8*s,cy+3*s),0,180,fill=(90,40,35),width=2)
+
 def background(scene_type, frame_index, total_frames):
     im=Image.new("RGB",(W,H),(225,231,238)); d=ImageDraw.Draw(im)
     # suelo y pared
@@ -80,18 +101,32 @@ def background(scene_type, frame_index, total_frames):
     d.line((0,340,W,340), fill=(120,130,140), width=3)
     if scene_type in ("sitting","surprise"):
         # mesa
-        d.rectangle((115,265,600,292), fill=(120,75,45))
+        # Taller de electrónica ordenado: estantes, instrumentos y banco de trabajo
+        d.rectangle((65,55,790,125),fill=(190,174,145),outline=(110,95,75),width=3)
+        for sx in (95,260,425,590,735):
+            d.rectangle((sx,70,sx+38,108),fill=(65,75,82),outline=(35,40,45),width=2)
+        d.rectangle((115,265,740,292), fill=(120,75,45))
         d.rectangle((145,292,165,430), fill=(85,53,35))
-        d.rectangle((545,292,565,430), fill=(85,53,35))
+        d.rectangle((690,292,710,430), fill=(85,53,35))
+        # Multímetro, placa y herramientas acomodadas sobre la mesa
+        d.rounded_rectangle((150,225,205,260),radius=5,fill=(45,55,62),outline=(20,25,30),width=2)
+        d.rectangle((160,231,195,244),fill=(170,210,180))
+        d.rectangle((560,235,620,258),fill=(55,90,65),outline=(25,45,30),width=2)
+        for px in (575,590,605): d.ellipse((px,242,px+5,247),fill=(210,190,70))
+        d.line((230,250,275,225),fill=(35,35,35),width=4)
         d.rectangle((0,430,W,480), fill=(130,140,150))
         if scene_type=="sitting":
-            draw_person(d,365,200,1.25,"sitting")
-            d.text((25,25),"EN EL TRABAJO",font=get_font(23,True),fill=(55,65,78))
+            draw_coworker(d,245,205,0.92,False)
+            draw_person(d,425,200,1.12,"sitting")
+            draw_coworker(d,640,205,0.92,False)
+            d.text((25,25),"TALLER DE ELECTRÓNICA",font=get_font(23,True),fill=(55,65,78))
         else:
-            draw_person(d,365,180,1.25,"running")
-            d.text((25,25),"¡DE REPENTE!",font=get_font(25,True),fill=(175,35,35))
-            d.line((420,175,475,150),fill=(180,45,35),width=4)
-            d.line((420,190,490,190),fill=(180,45,35),width=4)
+            draw_coworker(d,245,205,0.92,True)
+            draw_person(d,425,180,1.12,"surprise")
+            draw_coworker(d,640,205,0.92,False)
+            d.text((25,25),"¡CHARLY SE AGARRA LA PANZA!",font=get_font(22,True),fill=(175,35,35))
+            d.line((475,175,515,150),fill=(180,45,35),width=4)
+            d.line((475,190,530,190),fill=(180,45,35),width=4)
     elif scene_type=="running":
         # pasillo en perspectiva
         d.polygon([(0,0),(W,0),(610,340),(244,340)],fill=(235,238,242))
