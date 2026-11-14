@@ -142,7 +142,90 @@ def add_caption(im, title, description, progress):
     d.rectangle((0,474,int(W*progress),480),fill=(45,150,230))
     return im
 
-def render_video(audio_path, output_path, scenes, progress_cb):
+def detect_music_peaks(audio_path):
+    """
+    Detecta acentos/cambios fuertes de energía usando FFmpeg.
+    No necesita numpy, librosa ni modelos de IA.
+    Devuelve tiempos aproximados en segundos.
+    """
+    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    cmd = [
+        ffmpeg, "-v", "error", "-i", audio_path,
+        "-vn", "-ac", "1", "-ar", "11025",
+        "-f", "s16le", "-"
+    ]
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if result.returncode != 0 or len(result.stdout) < 2200:
+        return []
+
+    samples_per_window = 1102  # aproximadamente 0,1 segundo
+    energies = []
+    raw = result.stdout
+    sample_count = len(raw) // 2
+
+    for start in range(0, sample_count - samples_per_window, samples_per_window):
+        total = 0
+        end = start + samples_per_window
+        for (sample,) in __import__("struct").iter_unpack("<h", raw[start * 2:end * 2]):
+            total += sample * sample
+        energies.append(math.sqrt(total / samples_per_window))
+
+    if len(energies) < 5:
+        return []
+
+    average = sum(energies) / len(energies)
+    if average <= 0:
+        return []
+
+    peaks = []
+    last_peak = -10.0
+    for i in range(1, len(energies) - 1):
+        value = energies[i]
+        if (value >= energies[i - 1] and value > energies[i + 1]
+                and value >= average * 1.18):
+            moment = i * 0.1
+            if moment - last_peak >= 0.25:
+                peaks.append(moment)
+                last_peak = moment
+    return peaks
+
+
+def build_scene_plan(scenes, duration, music_peaks=None):
+    """
+    Conserva el orden y la duración aproximada de las escenas,
+    acercando los cambios a acentos detectados en la música.
+    """
+    music_peaks = music_peaks or []
+    plan = []
+    elapsed = 0.0
+    scene_index = 0
+    count = len(scenes)
+
+    while elapsed < duration and count:
+        scene = scenes[scene_index % count]
+        desired = min(float(max(1, int(scene["duration"]))), duration - elapsed)
+        boundary = elapsed + desired
+
+        if music_peaks and boundary < duration - 0.5:
+            candidates = [
+                p for p in music_peaks
+                if abs(p - boundary) <= 0.8 and p >= elapsed + 1.5
+                and p <= duration - 0.5
+            ]
+            if candidates:
+                snapped = min(candidates, key=lambda p: abs(p - boundary))
+                desired = snapped - elapsed
+
+        if desired <= 0:
+            break
+        plan.append((scene, desired))
+        elapsed += desired
+        scene_index += 1
+
+    return plan
+
+
+def render_video(audio_path, output_path, scenes, progress_cb, sync_music=True):
     ffmpeg=imageio_ffmpeg.get_ffmpeg_exe()
     duration=0
     try:
@@ -151,16 +234,15 @@ def render_video(audio_path, output_path, scenes, progress_cb):
     except Exception:
         duration=sum(max(1,int(s["duration"])) for s in scenes)
     if duration<=0: duration=sum(max(1,int(s["duration"])) for s in scenes)
-    total_scene=sum(max(1,int(s["duration"])) for s in scenes)
-    # Distribuir cada escena según duración indicada y repetir secuencia si la canción es más larga
-    plan=[]
-    remaining=duration
-    while remaining>0:
-        for s in scenes:
-            if remaining<=0: break
-            seg=min(max(1,int(s["duration"])),remaining)
-            plan.append((s,seg))
-            remaining-=seg
+    # Analizar la música y ajustar los cambios de escena a sus acentos.
+    if sync_music:
+        try:
+            music_peaks = detect_music_peaks(audio_path)
+        except Exception:
+            music_peaks = []
+    else:
+        music_peaks = []
+    plan = build_scene_plan(scenes, duration, music_peaks)
     total_frames=max(1,int(duration*FPS))
     temp=os.path.splitext(output_path)[0]+"_video_sin_audio.mp4"
     cmd=[ffmpeg,"-y","-f","rawvideo","-vcodec","rawvideo","-pix_fmt","rgb24","-s",f"{W}x{H}","-r",str(FPS),"-i","-","-an","-c:v","libx264","-preset","ultrafast","-pix_fmt","yuv420p","-movflags","+faststart",temp]
@@ -232,6 +314,8 @@ class App:
         self.status=ttk.Label(bottom,text="Listo. Cargá una canción para comenzar.")
         self.status.pack(anchor="w")
         self.progress=ttk.Progressbar(bottom,maximum=100); self.progress.pack(fill="x",pady=7)
+        self.sync_music=tk.BooleanVar(value=True)
+        ttk.Checkbutton(bottom,text="Sincronizar cambios de escena con los golpes de la música",variable=self.sync_music).pack(anchor="w")
         row=ttk.Frame(bottom); row.pack(fill="x")
         ttk.Label(row,text="El video se guarda en MP4, 854×480, 15 fps.").pack(side="left")
         ttk.Button(row,text="GENERAR VIDEO MP4",command=self.export).pack(side="right")
@@ -298,11 +382,11 @@ class App:
         self.progress["value"]=0
         self.status.config(text="Generando video. En esta PC puede tardar...")
         for child in self.root.winfo_children(): pass
-        threading.Thread(target=self.worker,args=(out,),daemon=True).start()
+        threading.Thread(target=self.worker,args=(out,self.sync_music.get()),daemon=True).start()
 
-    def worker(self,out):
+    def worker(self,out,sync_music=True):
         try:
-            render_video(self.audio,out,list(self.scenes),lambda v:self.root.after(0,lambda:self.progress.configure(value=v)))
+            render_video(self.audio,out,list(self.scenes),lambda v:self.root.after(0,lambda:self.progress.configure(value=v)),sync_music)
             self.root.after(0,lambda:(self.status.config(text="¡Video terminado!"),messagebox.showinfo("Terminado","Videoclip creado:\n"+out)))
         except Exception as e:
             self.root.after(0,lambda:(self.status.config(text="Error al generar el video."),messagebox.showerror("Error",str(e))))
